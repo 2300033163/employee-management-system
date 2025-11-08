@@ -18,14 +18,14 @@ jobs:
           MYSQL_DATABASE: eventdb
           MYSQL_USER: ems_user
           MYSQL_PASSWORD: ems_pass
-          MYSQL_ALLOW_EMPTY_PASSWORD: yes
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h localhost"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+          --health-cmd="mysqladmin ping -h localhost -uems_user -pems_pass"
+          --health-interval=5s
+          --health-timeout=2s
+          --health-retries=10
+          --health-start-period=10s
 
     steps:
     - uses: actions/checkout@v3
@@ -62,7 +62,7 @@ jobs:
       working-directory: ./ems-backend
       run: |
         chmod +x mvnw
-        ./mvnw clean package -DskipTests
+        MAVEN_OPTS="-Xmx2048m" ./mvnw clean package -DskipTests -B -V
         
     - name: Test Backend
       working-directory: ./ems-backend
@@ -71,7 +71,9 @@ jobs:
         SPRING_DATASOURCE_USERNAME: ems_user
         SPRING_DATASOURCE_PASSWORD: ems_pass
         SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
-      run: ./mvnw test
+        SPRING_JPA_SHOW_SQL: "false"
+        MAVEN_OPTS: "-Xmx2048m"
+      run: ./mvnw test -B -V
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -86,19 +88,25 @@ jobs:
         CI: false
         NODE_OPTIONS: "--max_old_space_size=4096"
       run: |
+        npm cache verify
         npm cache clean --force
         rm -rf node_modules package-lock.json
-        npm install --legacy-peer-deps
-        npm run build
+        npm install --no-audit --prefer-offline --legacy-peer-deps
+        npm run build --if-present
+      continue-on-error: false
 
     - name: Upload Backend Artifact
       uses: actions/upload-artifact@v3
       with:
         name: backend-jar
         path: ems-backend/target/*.jar
+        retention-days: 5
+        if-no-files-found: error
 
     - name: Upload Frontend Artifact
       uses: actions/upload-artifact@v3
       with:
         name: frontend-dist
         path: ems-frontend/dist
+        retention-days: 5
+        if-no-files-found: error
