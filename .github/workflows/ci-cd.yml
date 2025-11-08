@@ -54,8 +54,8 @@ EOF
 
     - name: Wait for MySQL to be ready (use wait-for-it)
       run: |
-        chmod +x ./wait-for-it.sh || true
-        ./wait-for-it.sh 127.0.0.1:3306 -t 60 --strict
+        chmod +x ./ems-backend/wait-for-it.sh || true
+        ./ems-backend/wait-for-it.sh 127.0.0.1:3306 -t 60 --strict
 
     - name: Build Backend
       working-directory: ./ems-backend
@@ -98,7 +98,7 @@ EOF
       uses: actions/upload-artifact@v3
       with:
         name: backend-jar
-        path: ems-backend/target/*.jar
+        path: ems-backend/target/*-SNAPSHOT.jar
         retention-days: 5
         if-no-files-found: error
 
@@ -106,6 +106,6 @@ EOF
       uses: actions/upload-artifact@v3
       with:
         name: frontend-dist
-        path: ems-frontend/dist
+        path: ems-frontend/dist/**
         retention-days: 5
         if-no-files-found: error
