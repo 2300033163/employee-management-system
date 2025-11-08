@@ -14,17 +14,18 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
+          MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: eventdb
           MYSQL_USER: ems_user
           MYSQL_PASSWORD: ems_pass
-          MYSQL_ROOT_PASSWORD: root
+          MYSQL_ALLOW_EMPTY_PASSWORD: yes
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="mysqladmin ping -h localhost"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=3
+          --health-retries=5
 
     steps:
     - uses: actions/checkout@v3
@@ -36,13 +37,20 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Update application.properties for testing
+    - name: Setup test environment
       run: |
-        echo "spring.datasource.url=jdbc:mysql://localhost:3306/eventdb" > ems-backend/src/test/resources/application.properties
-        echo "spring.datasource.username=ems_user" >> ems-backend/src/test/resources/application.properties
-        echo "spring.datasource.password=ems_pass" >> ems-backend/src/test/resources/application.properties
-        echo "spring.jpa.hibernate.ddl-auto=create-drop" >> ems-backend/src/test/resources/application.properties
-        echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect" >> ems-backend/src/test/resources/application.properties
+        cat > ems-backend/src/test/resources/application.properties << EOF
+        spring.datasource.url=jdbc:mysql://localhost:3306/eventdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+        spring.datasource.username=ems_user
+        spring.datasource.password=ems_pass
+        spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+        spring.jpa.hibernate.ddl-auto=create-drop
+        spring.jpa.show-sql=true
+        spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect
+        spring.jpa.properties.hibernate.format_sql=true
+        app.jwtSecret=test-secret-key-for-jwt-in-tests
+        app.jwtExpirationMs=86400000
+        EOF
 
     - name: Wait for MySQL to be ready
       run: |
@@ -50,12 +58,20 @@ jobs:
           sleep 1
         done
 
-    - name: Build and Test Backend
+    - name: Build Backend
       working-directory: ./ems-backend
       run: |
         chmod +x mvnw
-        ./mvnw clean install -DskipTests
-        ./mvnw test
+        ./mvnw clean package -DskipTests
+        
+    - name: Test Backend
+      working-directory: ./ems-backend
+      env:
+        SPRING_DATASOURCE_URL: jdbc:mysql://localhost:3306/eventdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+        SPRING_DATASOURCE_USERNAME: ems_user
+        SPRING_DATASOURCE_PASSWORD: ems_pass
+        SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
+      run: ./mvnw test
 
     - name: Set up Node.js
       uses: actions/setup-node@v3
@@ -64,17 +80,16 @@ jobs:
         cache: 'npm'
         cache-dependency-path: './ems-frontend/package-lock.json'
 
-    - name: Install Frontend Dependencies
-      working-directory: ./ems-frontend
-      run: |
-        npm install --legacy-peer-deps
-        npm run build --if-present
-
-    - name: Build Frontend
+    - name: Install and Build Frontend
       working-directory: ./ems-frontend
       env:
         CI: false
-      run: npm run build
+        NODE_OPTIONS: "--max_old_space_size=4096"
+      run: |
+        npm cache clean --force
+        rm -rf node_modules package-lock.json
+        npm install --legacy-peer-deps
+        npm run build
 
     - name: Upload Backend Artifact
       uses: actions/upload-artifact@v3
